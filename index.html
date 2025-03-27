@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script>const whTooltips = {colorLinks: true, iconizeLinks: true, renameLinks: true};</script>
+    <script src="https://wow.zamimg.com/js/tooltips.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WoW Item Comparison</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .search-section {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        input, button {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: none;
+            font-size: 16px;
+        }
+        input {
+            width: 250px;
+            background: #333;
+            color: white;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .results-section {
+            display: flex;
+            justify-content: space-around;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .item-card {
+            background-color: #2d2d2d;
+            padding: 15px;
+            border-radius: 8px;
+            width: 45%;
+            min-width: 300px;
+        }
+        .better-stat {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .worse-stat {
+            color: #F44336;
+            font-weight: bold;
+        }
+        .loading {
+            color: #FFD700;
+            font-style: italic;
+        }
+        .error {
+            color: #F44336;
+        }
+        @media (max-width: 768px) {
+            .item-card {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>World of Warcraft Item Comparison</h1>
+        <p>Enter item names or IDs (e.g. "Thunderfury" or "19019")</p>
+    </header>
+    
+    <main>
+        <div class="search-section">
+            <input type="text" id="item1-search" placeholder="First item (name or ID)" autocomplete="off">
+            <input type="text" id="item2-search" placeholder="Second item (name or ID)" autocomplete="off">
+            <button id="compare-btn">Compare Items</button>
+        </div>
+        
+        <div class="results-section">
+            <div class="item-card" id="item1-display"></div>
+            <div class="item-card" id="item2-display"></div>
+        </div>
+    </main>
+
+    <footer>
+        <p>Not affiliated with Blizzard Entertainment. Data from Wowhead.</p>
+    </footer>
+
+    <script>
+        // Main comparison function
+        document.getElementById('compare-btn').addEventListener('click', async function() {
+            const item1Input = document.getElementById('item1-search').value.trim();
+            const item2Input = document.getElementById('item2-search').value.trim();
+            
+            if (!item1Input || !item2Input) {
+                alert('Please enter both items to compare!');
+                return;
+            }
+            
+            // Show loading state
+            document.getElementById('item1-display').innerHTML = '<p class="loading">Loading item 1...</p>';
+            document.getElementById('item2-display').innerHTML = '<p class="loading">Loading item 2...</p>';
+            
+            try {
+                // Get item IDs (support direct IDs or search by name)
+                const item1Id = await resolveItemId(item1Input);
+                const item2Id = await resolveItemId(item2Input);
+                
+                if (!item1Id || !item2Id) {
+                    throw new Error("Could not find both items. Try using exact item names or IDs.");
+                }
+                
+                // Fetch and compare items
+                await compareItems(item1Id, item2Id);
+            } catch (error) {
+                console.error("Comparison failed:", error);
+                document.getElementById('item1-display').innerHTML = `<p class="error">Error: ${error.message}</p>`;
+                document.getElementById('item2-display').innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        });
+
+        // Convert item name or URL to ID
+        async function resolveItemId(input) {
+            // If input is already a number (item ID)
+            if (/^\d+$/.test(input)) {
+                return input;
+            }
+            
+            // If input is a Wowhead URL
+            const urlMatch = input.match(/wowhead\.com\/item=(\d+)/i);
+            if (urlMatch) {
+                return urlMatch[1];
+            }
+            
+            // Search Wowhead for item by name
+            return await searchWowheadForItemId(input);
+        }
+
+        // Search Wowhead for item ID by name
+        async function searchWowheadForItemId(itemName) {
+            try {
+                const response = await fetch(`https://www.wowhead.com/search?q=${encodeURIComponent(itemName)}`);
+                const html = await response.text();
+                
+                // Parse HTML to find item ID
+                const itemLinkMatch = html.match(/href="\/item=(\d+)[^>]*>([^<]+)<\/a>/i);
+                if (itemLinkMatch) {
+                    return itemLinkMatch[1]; // Return item ID
+                }
+                throw new Error(`Item "${itemName}" not found`);
+            } catch (error) {
+                console.error(`Search failed for "${itemName}":`, error);
+                throw new Error(`Could not find item: ${itemName}`);
+            }
+        }
+
+        // Fetch item data from Wowhead's XML API
+        async function getWowheadItemData(itemId) {
+            try {
+                const response = await fetch(`https://www.wowhead.com/item=${itemId}&xml`);
+                if (!response.ok) throw new Error("Item not found");
+                
+                const xmlText = await response.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                
+                // Basic item info
+                const item = {
+                    id: itemId,
+                    name: xmlDoc.querySelector("name").textContent,
+                    icon: `https://wow.zamimg.com/images/wow/icons/large/${xmlDoc.querySelector("icon")?.textContent || 'inv_misc_questionmark'}.jpg`,
+                    ilvl: xmlDoc.querySelector("level")?.textContent || "?",
+                    quality: xmlDoc.querySelector("quality")?.textContent || "0",
+                    htmlTooltip: xmlDoc.querySelector("htmlTooltip")?.textContent || ""
+                };
+                
+                // Parse stats from tooltip HTML
+                item.stats = parseStatsFromTooltip(item.htmlTooltip);
+                return item;
+            } catch (error) {
+                console.error(`Failed to fetch item ${itemId}:`, error);
+                throw new Error(`Failed to load item data (ID: ${itemId})`);
+            }
+        }
+
+        // Parse stats from Wowhead's HTML tooltip
+        function parseStatsFromTooltip(htmlTooltip) {
+            const stats = {};
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlTooltip, "text/html");
+            
+            // Extract stats from tooltip lines
+            const lines = doc.querySelectorAll("div.q2, div.q1, div.q0");
+            lines.forEach(line => {
+                const text = line.textContent.trim();
+                
+                // Match common stat patterns
+                if (text.includes("Stamina")) {
+                    stats.stamina = extractNumber(text);
+                } else if (text.includes("Strength")) {
+                    stats.strength = extractNumber(text);
+                } else if (text.includes("Agility")) {
+                    stats.agility = extractNumber(text);
+                } else if (text.includes("Intellect")) {
+                    stats.intellect = extractNumber(text);
+                } else if (text.includes("Critical Strike")) {
+                    stats.crit = extractNumber(text);
+                } else if (text.includes("Haste")) {
+                    stats.haste = extractNumber(text);
+                } else if (text.includes("Mastery")) {
+                    stats.mastery = extractNumber(text);
+                } else if (text.includes("Versatility")) {
+                    stats.versatility = extractNumber(text);
+                }
+            });
+            
+            return stats;
+        }
+
+        // Helper: Extract number from text (e.g. "+20" → 20)
+        function extractNumber(text) {
+            const match = text.match(/[+-]?\d+/);
+            return match ? parseInt(match[0]) : 0;
+        }
+
+        // Compare two items
+        async function compareItems(item1Id, item2Id) {
+            const [item1, item2] = await Promise.all([
+                getWowheadItemData(item1Id),
+                getWowheadItemData(item2Id)
+            ]);
+            
+            displayComparison(item1, item2);
+        }
+
+        // Display comparison results
+        function displayComparison(item1, item2) {
+            const qualityColors = {
+                0: "#9d9d9d", // Poor
+                1: "#ffffff", // Common
+                2: "#1eff00", // Uncommon
+                3: "#0070dd", // Rare
+                4: "#a335ee", // Epic
+                5: "#ff8000"  // Legendary
+            };
+            
+            const item1Element = document.getElementById('item1-display');
+            const item2Element = document.getElementById('item2-display');
+            
+            // Format item 1 display
+            item1Element.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                    <img src="${item1.icon}" width="56" height="56" alt="${item1.name}">
+                    <h3 style="margin: 0; color: ${qualityColors[item1.quality] || '#ffffff'}">
+                        <a href="https://www.wowhead.com/item=${item1.id}" 
+                           data-wowhead="item=${item1.id}">${item1.name}</a>
+                    </h3>
+                </div>
+                <p><strong>Item Level:</strong> ${formatStat(item1.ilvl, item2.ilvl)}</p>
+                ${renderStat("Stamina", item1.stats.stamina, item2.stats.stamina)}
+                ${renderStat("Strength", item1.stats.strength, item2.stats.strength)}
+                ${renderStat("Agility", item1.stats.agility, item2.stats.agility)}
+                ${renderStat("Intellect", item1.stats.intellect, item2.stats.intellect)}
+                ${renderStat("Crit", item1.stats.crit, item2.stats.crit, "%")}
+                ${renderStat("Haste", item1.stats.haste, item2.stats.haste, "%")}
+                ${renderStat("Mastery", item1.stats.mastery, item2.stats.mastery, "%")}
+                ${renderStat("Versatility", item1.stats.versatility, item2.stats.versatility, "%")}
+            `;
+            
+            // Format item 2 display
+            item2Element.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                    <img src="${item2.icon}" width="56" height="56" alt="${item2.name}">
+                    <h3 style="margin: 0; color: ${qualityColors[item2.quality] || '#ffffff'}">
+                        <a href="https://www.wowhead.com/item=${item2.id}" 
+                           data-wowhead="item=${item2.id}">${item2.name}</a>
+                    </h3>
+                </div>
+                <p><strong>Item Level:</strong> ${formatStat(item2.ilvl, item1.ilvl)}</p>
+                ${renderStat("Stamina", item2.stats.stamina, item1.stats.stamina)}
+                ${renderStat("Strength", item2.stats.strength, item1.stats.strength)}
+                ${renderStat("Agility", item2.stats.agility, item1.stats.agility)}
+                ${renderStat("Intellect", item2.stats.intellect, item1.stats.intellect)}
+                ${renderStat("Crit", item2.stats.crit, item1.stats.crit, "%")}
+                ${renderStat("Haste", item2.stats.haste, item1.stats.haste, "%")}
+                ${renderStat("Mastery", item2.stats.mastery, item1.stats.mastery, "%")}
+                ${renderStat("Versatility", item2.stats.versatility, item1.stats.versatility, "%")}
+            `;
+            
+            // Refresh Wowhead tooltips
+            if (window.WhTooltips) {
+                window.WhTooltips.refreshLinks();
+            }
+        }
+
+        // Helper: Format a stat row with comparison
+        function renderStat(name, value, comparison, suffix = "") {
+            value = value || 0;
+            comparison = comparison || 0;
+            return `<p><strong>${name}:</strong> ${formatStat(value, comparison)}${suffix}</p>`;
+        }
+
+        // Helper: Color-code stat differences
+        function formatStat(value, comparison) {
+            if (value > comparison) {
+                return `<span class="better-stat">${value} ▲</span>`;
+            } else if (value < comparison) {
+                return `<span class="worse-stat">${value} ▼</span>`;
+            }
+            return value;
+        }
+    </script>
+</body>
+</html>
